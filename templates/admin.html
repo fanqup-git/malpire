@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Админ-панель | malpire.ru{% endblock %}
+{% block body_class %}admin-page{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <h1>Админ-панель</h1>
+    
+    <div class="admin-sections">
+        <section class="admin-section">
+            <h2>Пользователи</h2>
+            <div class="table-container">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Имя</th>
+                            <th>Статус</th>
+                            <th>Последняя активность</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>{{ user.id }}</td>
+                            <td>
+                                <a href="/profile/{{ user.username }}" target="_blank">
+                                    {{ user.username }}
+                                    {% if user.is_admin %}
+                                        <img src="/static/verified.png" class="admin-badge" title="Администратор">
+                                    {% endif %}
+                                </a>
+                            </td>
+                            <td>
+                                <span class="status-dot {% if (datetime.utcnow() - user.last_activity).total_seconds() < 300 %}online{% else %}offline{% endif %}"></span>
+                                {% if (datetime.utcnow() - user.last_activity).total_seconds() < 300 %}
+                                    онлайн
+                                {% else %}
+                                    оффлайн
+                                {% endif %}
+                            </td>
+                            <td>{{ format_last_seen(user.last_activity) }}</td>
+                            <td class="actions">
+                                <form method="post" action="/admin/update_user/{{ user.id }}" class="toggle-form">
+                                    <input type="checkbox" 
+                                           id="admin_{{ user.id }}" 
+                                           name="is_admin" 
+                                           {% if user.is_admin %}checked{% endif %}
+                                           onchange="this.form.submit()">
+                                    <label for="admin_{{ user.id }}" class="toggle-label">
+                                        <span class="toggle-text">Админ</span>
+                                        <span class="toggle-switch"></span>
+                                    </label>
+                                </form>
+                                <form method="post" action="/admin/delete_user/{{ user.id }}" class="delete-form">
+                                    <button type="submit" class="delete-btn" onclick="return confirm('Удалить пользователя {{ user.username }}? Все его чаты и сообщения будут удалены.')">
+                                        Удалить
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="admin-section">
+            <h2>Чаты</h2>
+            <div class="table-container">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Участники</th>
+                            <th>Сообщений</th>
+                            <th>Создан</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for chat in chats %}
+                        <tr>
+                            <td>{{ chat.id }}</td>
+                            <td>
+                                <a href="/profile/{{ chat.user1.username }}" target="_blank">{{ chat.user1.username }}</a> 
+                                и 
+                                <a href="/profile/{{ chat.user2.username }}" target="_blank">{{ chat.user2.username }}</a>
+                            </td>
+                            <td>{{ chat.messages|length }}</td>
+                            <td>
+                                {% if chat.messages %}
+                                    {{ chat.messages[0].timestamp.strftime('%d.%m.%Y %H:%M') }}
+                                {% else %}
+                                    Нет сообщений
+                                {% endif %}
+                            </td>
+                            <td class="actions">
+                                <a href="/chat/{{ chat.id }}" target="_blank" class="view-btn">Просмотр</a>
+                                <form method="post" action="/admin/delete_chat/{{ chat.id }}" class="delete-form">
+                                    <button type="submit" class="delete-btn" onclick="return confirm('Удалить чат между {{ chat.user1.username }} и {{ chat.user2.username }}? Все сообщения и вложения будут удалены.')">
+                                        Удалить
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+</div>
+
+<style>
+    .admin-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .admin-sections {
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+    }
+
+    .admin-section {
+        background: #2a2a2a;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+    }
+
+    .admin-section h2 {
+        color: #00bfff;
+        margin-top: 0;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #444;
+    }
+
+    .table-container {
+        overflow-x: auto;
+    }
+
+    .admin-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .admin-table th, .admin-table td {
+        padding: 12px 15px;
+        text-align: left;
+        border-bottom: 1px solid #444;
+    }
+
+    .admin-table th {
+        background: #333;
+        color: #00bfff;
+        font-weight: bold;
+    }
+
+    .admin-table tr:hover {
+        background: rgba(0, 191, 255, 0.05);
+    }
+
+    .admin-table a {
+        color: #00bfff;
+        text-decoration: none;
+    }
+
+    .admin-table a:hover {
+        text-decoration: underline;
+    }
+
+    .actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .toggle-form {
+        margin: 0;
+    }
+
+    .toggle-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+    }
+
+    .toggle-text {
+        color: #d0d0d0;
+    }
+
+    .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 50px;
+        height: 24px;
+        background: #444;
+        border-radius: 12px;
+        transition: background 0.3s;
+    }
+
+    .toggle-switch:after {
+        content: '';
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #d0d0d0;
+        top: 2px;
+        left: 2px;
+        transition: transform 0.3s;
+    }
+
+    input[type="checkbox"] {
+        display: none;
+    }
+
+    input[type="checkbox"]:checked + label .toggle-switch {
+        background: #00bfff;
+    }
+
+    input[type="checkbox"]:checked + label .toggle-switch:after {
+        transform: translateX(26px);
+    }
+
+    .delete-form {
+        margin: 0;
+    }
+
+    .delete-btn, .view-btn {
+        padding: 5px 10px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9em;
+        transition: all 0.3s;
+    }
+
+    .delete-btn {
+        background: #ff4444;
+        color: white;
+    }
+
+    .delete-btn:hover {
+        background: #cc0000;
+    }
+
+    .view-btn {
+        background: #444;
+        color: #d0d0d0;
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .view-btn:hover {
+        background: #555;
+    }
+
+    @media (max-width: 768px) {
+        .admin-container {
+            padding: 10px;
+        }
+        
+        .admin-section {
+            padding: 15px;
+        }
+        
+        .actions {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 5px;
+        }
+        
+        .admin-table th, .admin-table td {
+            padding: 8px 10px;
+            font-size: 0.9em;
+        }
+    }
+</style>
+{% endblock %}

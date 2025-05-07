@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Ваши чаты | malpire.ru{% endblock %}
+{% block body_class %}chat-layout{% endblock %}
+
+{% block content %}
+    <div class="menu-toggle" id="menuToggle">
+        <span></span>
+    </div>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+    <div class="sidebar" style="max-width: 600px; width: 100%;">
+        <!-- Добавляем поиск -->
+        <div class="search-container">
+            <input type="text" id="userSearch" placeholder="Поиск пользователей..." autocomplete="off">
+            <div class="search-results" id="searchResults"></div>
+        </div>
+        <h2>Ваши чаты</h2>
+        {% if chats %}
+            {% for chat in chats %}
+                <a href="/chat/{{ chat.chat_id }}" class="chat-link {% if chat.unread_count > 0 %}unread{% endif %}">
+                    <div class="chat-info">
+                        <strong>{{ chat.partner_username }}</strong>
+                        {% if chat.unread_count > 0 %}
+                            <span class="unread-badge">{{ chat.unread_count }}</span>
+                        {% endif %}
+                        <p class="last-message">{{ chat.last_message_content|default('Нет сообщений') }}</p>
+                    </div>
+                </a>
+            {% endfor %}
+        {% else %}
+            <p>У вас пока нет чатов</p>
+        {% endif %}
+    </div>
+
+    <script>
+        const userSearch = document.getElementById('userSearch');
+        const searchResults = document.getElementById('searchResults');
+        let searchTimeout = null;
+
+        userSearch.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const query = this.value.trim();
+            if (query.length < 2) {
+                searchResults.innerHTML = '';
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            searchTimeout = setTimeout(async () => {
+
+                try {
+                    const response = await fetch(`/api/search_users?query=${encodeURIComponent(query)}`);
+                    const users = await response.json();
+
+                    if (users.length > 0) {
+                        let html = '';
+                        users.forEach(user => {
+                            html += `
+                            <div class="search-result-item" onclick="startChatWithUser(${user.id}, '${user.username}')">
+                                <img src="${user.avatar_url || '/static/default_avatar.png'}" class="search-result-avatar">
+                                <span class="search-result-username">${user.username}</span>
+                                ${user.is_admin ? '<img src="/static/verified.png" class="admin-badge" title="Администратор">' : ''}
+                                <span class="status-dot ${user.online ? 'online' : 'offline'}"></span>
+                            </div>`;
+                        });
+                        searchResults.innerHTML = html;
+                        searchResults.style.display = 'block';
+                    } else {
+                        searchResults.innerHTML = '<div class="no-results">Ничего не найдено</div>';
+                        searchResults.style.display = 'block';
+                    }
+                } catch (error) {
+                    console.error('Ошибка поиска:', error);
+                }
+            }, 300);
+        });
+
+        // Закрытие результатов при клике вне поля поиска
+        document.addEventListener('click', function(e) {
+            if (!userSearch.contains(e.target)) {
+                searchResults.style.display = 'none';
+            }
+        });
+
+        // Функция создания чата с пользователем
+        async function startChatWithUser(userId, username) {
+            try {
+                const response = await fetch('/api/create_chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        partner_id: userId
+                    })
+                });
+                const result = await response.json();
+                if (result.chat_id) {
+                    window.location.href = `/chat/${result.chat_id}`;
+                }
+            } catch (error) {
+                console.error('Ошибка создания чата:', error);
+                alert('Не удалось начать чат');
+            }
+        }
+
+
+
+        function initMobileMenu() {
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            // Автоматическое открытие на мобильных
+
+            function updateSidebarState() {
+                const isMobile = window.innerWidth <= 768;
+                if (isMobile) {
+                    sidebar.classList.add('active');
+                    overlay.classList.add('active');
+                    menuToggle.classList.add('active');
+                } else {
+                    sidebar.classList.remove('active');
+                    overlay.classList.remove('active');
+                    menuToggle.classList.remove('active');
+                }
+            }
+            // Инициализация при загрузке
+            updateSidebarState();
+            // Обработчик изменения размера окна
+            window.addEventListener('resize', updateSidebarState);
+            // Клики по элементам управления
+            menuToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+                sidebar.classList.toggle('active');
+                overlay.classList.toggle('active');
+                menuToggle.classList.toggle('active');
+            });
+
+            overlay.addEventListener('click', function() {
+                sidebar.classList.remove('active');
+                overlay.classList.remove('active');
+                menuToggle.classList.remove('active');
+            });
+
+            document.querySelectorAll('.sidebar a').forEach(link => {
+                link.addEventListener('click', function() {
+                    if (window.innerWidth <= 768) {
+                        sidebar.classList.remove('active');
+                        overlay.classList.remove('active');
+                        menuToggle.classList.remove('active');
+                    }
+                });
+            });
+        }
+        window.addEventListener('DOMContentLoaded', initMobileMenu);
+    </script>
+
+{% endblock %}

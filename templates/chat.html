@@ -1,0 +1,735 @@
+{% extends "base.html" %}
+{% block title %}Чат с {{ partner }} | malpire.ru{% endblock %}
+{% block body_class %}chat-layout{% endblock %}
+
+{% block content %}
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="search-container">
+            <input type="text" id="userSearch" placeholder="Поиск пользователей..." autocomplete="off">
+            <div class="search-results" id="searchResults"></div>
+        </div>
+
+        <h2>Чаты</h2>
+        <div id="chats-list">
+            {% for chat in chats %}
+                <div class="chat-item">
+                    <a href="/chat/{{ chat.chat_id }}" class="{{ 'active-chat' if chat.partner_username == partner }} {{ 'unread' if chat.unread_count > 0 }}">
+                        <div class="user-info">
+                            <span class="status-dot {% if statuses[chat.partner_username].online %}online{% else %}offline{% endif %}"></span>
+                            <strong>{{ chat.partner_username }}</strong>
+                            {% if chat.unread_count > 0 %}
+                                <span class="unread-badge">{{ chat.unread_count }}</span>
+                            {% endif %}
+                        </div>
+                        <span class="last-message" title="{{ chat.last_message_content or 'Нет сообщений' }}">
+                            {% if chat.last_message_content %}
+                                {{ chat.last_message_content|truncate(30, True) }}
+                            {% else %}
+                                Нет сообщений
+                            {% endif %}
+                        </span>
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+<div class="chat-container">
+    <!-- Шапка чата -->
+    <div class="chat-header">
+        <div class="menu-toggle" id="menuToggle">
+            <span></span>
+        </div>
+        <img src="{{ statuses[partner].avatar_url }}" class="partner-avatar">
+        <div class="partner-info">
+            <div class="chat-title">
+                {{ partner }}
+                {% if statuses[partner].is_admin %}
+                    <img src="/static/verified.png" class="admin-badge" title="Администратор">
+                {% endif %}
+            </div>
+            <div class="partner-status">
+                <span class="status-dot {% if statuses[partner].online %}online{% else %}offline{% endif %}"></span>
+                {% if statuses[partner].online %}
+                    <span>онлайн</span>
+                {% else %}
+                    <span>был(а) {{ statuses[partner].last_seen }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Область сообщений -->
+    <div id="chat-box">
+        {% for message in messages %}
+            <div class="message-container {{ 'my-message' if message.sender_id == current_user_id else 'their-message' }}">
+                {% if message.sender_id != current_user_id %}
+                    <div class="avatar-container">
+                        <img src="{{ statuses[message.sender_username].avatar_url }}"
+                             class="message-avatar">
+                    </div>
+                {% endif %}
+
+                <div class="message-bubble">
+                    {% if message.content %}
+                        <div class="message-text">{{ message.content }}</div>
+                    {% endif %}
+
+                    {% if message.attachments %}
+                        <div class="message-attachments">
+                            {% for attachment in message.attachments %}
+                                {% if attachment.file_type == 'image' %}
+                                    <div class="attachment">
+                                        <img src="{{ attachment.file_url }}"
+                                             class="attachment-image"
+                                             onclick="window.open('{{ attachment.file_url }}', '_blank')">
+                                    </div>
+                                {% else %}
+                                    <div class="attachment">
+                                        <a href="{{ attachment.file_url }}" target="_blank">
+                                            📄 {{ attachment.file_name|truncate(20) }}
+                                        </a>
+                                    </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <time datetime="{{ message.timestamp.isoformat() }}">
+                        {{ message.timestamp.strftime('%H:%M') }}
+                    </time>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <!-- Поле ввода -->
+    <div class="input-area">
+        <div class="attachment-preview hidden" id="attachmentPreview"></div>
+
+        <div class="input-wrapper">
+            <input type="text"
+                   id="messageInput"
+                   placeholder="Напишите сообщение..."
+                   autocomplete="off">
+
+            <label for="fileInput" class="file-upload-button" title="Прикрепить файл">
+                📎
+                <input type="file"
+                       id="fileInput"
+                       style="display: none;"
+                       multiple>
+            </label>
+
+            <button id="sendButton" onclick="sendMessage()">
+                Отправить
+            </button>
+        </div>
+    </div>
+</div>
+    <audio id="notificationSound" hidden>
+        <source src="/static/notification.mp3" type="audio/mpeg">
+    </audio>
+    </div>
+    <div id="profileModal" class="modal">
+        <div class="modal-blur-bg"></div>
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <div id="profileModalContent"></div>
+        </div>
+    </div>
+    <script>
+        const chatId = {{ chat_id }};
+        const currentUserId = {{ request.session.get('user_id') }};
+        const currentUsername = "{{ current_user.username }}";
+        const currentPartner = "{{ partner }}";
+        const statuses = JSON.parse('{{ statuses|tojson|safe }}');
+        let ws = null;
+        let attachments = [];
+
+        // Функция инициализации WebSocket
+        function initWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+	        ws = new WebSocket(`${protocol}${window.location.host}/ws/chat/${chatId}?user_id=${currentUserId}&current_chat_id=${chatId}`);
+
+            ws.onopen = function() {
+                console.log("WebSocket соединение установлено");
+                requestChatsUpdate();
+            };
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.action === "update_chats") {
+                        updateChatsList(data.chats);
+                        return;
+                    }
+
+                    if (data.action === "new_message") {
+                        handleNewMessage(data);
+                    }
+                } catch (error) {
+                    console.error("Ошибка обработки сообщения WebSocket:", error);
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error("WebSocket ошибка:", error);
+            };
+
+            ws.onclose = function() {
+                console.log("WebSocket соединение закрыто");
+                setTimeout(initWebSocket, 5000); // Переподключение через 5 секунд
+            };
+        }
+
+        // Обработка нового сообщения
+        function handleNewMessage(data) {
+            const chatBox = document.getElementById("chat-box");
+            if (!chatBox) return;
+
+            const messageContainer = document.createElement("div");
+            messageContainer.className = `message-container ${data.sender_id == currentUserId ? "my-message" : "their-message"}`;
+
+            let messageContent = `
+                <div class="message-bubble">
+                    ${data.content ? `<div class="message-text">${data.content}</div>` : ''}
+            `;
+
+            if (data.attachments && data.attachments.length > 0) {
+                messageContent += `<div class="message-attachments">`;
+                data.attachments.forEach(attachment => {
+                    if (attachment.file_type === 'image') {
+                        messageContent += `
+                            <div class="attachment">
+                                <img src="${attachment.file_url}" class="attachment-image"
+                                     onclick="window.open('${attachment.file_url}', '_blank')">
+                            </div>`;
+                    } else {
+                        messageContent += `
+                            <div class="attachment">
+                                <a href="${attachment.file_url}" target="_blank">${attachment.file_name}</a>
+                            </div>`;
+                    }
+                });
+                messageContent += `</div>`;
+            }
+
+            messageContent += `
+                    <time>${new Date(data.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</time>
+                </div>
+            `;
+
+            if (data.sender_id != currentUserId) {
+                const avatarUrl = statuses[data.sender_username]?.avatar_url || '/static/default_avatar.png';
+                messageContainer.innerHTML = `
+                    <div class="avatar-container">
+                        <img src="${avatarUrl}" class="message-avatar">
+                    </div>
+                    ${messageContent}
+                `;
+            } else {
+                messageContainer.innerHTML = messageContent;
+            }
+
+            chatBox.appendChild(messageContainer);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            const isChatActive = document.hasFocus();
+
+            if (!isChatActive || data.chat_id !== chatId) {
+                showNotification(
+                    `Новое сообщение от ${data.sender_username}`,
+                    data.content || 'Вложение',
+                    `/chat/${data.chat_id}`
+                );
+            }
+        }
+
+        function showNotification(title, body, url) {
+            if (!("Notification" in window)) return;
+            if (Notification.permission === "granted") {
+                createNotification(title, body, url);
+            }
+            else if (Notification.permission !== "denied") {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        createNotification(title, body, url);
+                    }
+                });
+            }
+        }
+
+        function createNotification(title, body, url) {
+            const notification = new Notification(title, {
+                body,
+                icon: '/static/icon.png',
+                vibrate: [200, 100, 200]
+            });
+
+            notification.onclick = () => {
+                window.open(url, '_blank');
+                notification.close();
+            };
+        }
+
+        // Форматирование времени последней активности
+        function formatLastSeen(timestamp) {
+            if (!timestamp) return 'давно';
+            const now = new Date();
+            const lastSeen = new Date(timestamp);
+            const diff = Math.floor((now - lastSeen) / 1000);
+
+            if (diff < 60) return 'только что';
+            if (diff < 3600) return `${Math.floor(diff/60)} мин назад`;
+            if (diff < 86400) return `${Math.floor(diff/3600)} ч назад`;
+            return `${Math.floor(diff/86400)} дн назад`;
+        }
+
+        // Обновление статусов пользователей
+        async function updateUserStatuses() {
+            try {
+                const response = await fetch('/api/user_statuses');
+                const newStatuses = await response.json();
+
+                // Обновляем статусы в списке чатов
+                const chatItems = document.querySelectorAll('.chat-item');
+                if (chatItems) {
+                    chatItems.forEach(item => {
+                        const usernameElement = item.querySelector('strong');
+                        if (usernameElement) {
+                            const username = usernameElement.textContent;
+                            const statusDot = item.querySelector('.status-dot');
+                            const statusText = item.querySelector('.last-activity');
+
+                            if (statusDot && newStatuses[username]) {
+                                statusDot.className = 'status-dot ' + (newStatuses[username].online ? 'online' : 'offline');
+                            }
+
+                            if (statusText && newStatuses[username]) {
+                                statusText.textContent = newStatuses[username].online
+                                    ? 'онлайн'
+                                    : `был(а) ${formatLastSeen(newStatuses[username].last_seen)}`;
+                            }
+                        }
+                    });
+                }
+
+                // Обновляем статус в заголовке чата
+                if (newStatuses[currentPartner]) {
+                    const headerStatus = document.querySelector('.partner-status .status-dot');
+                    const statusText = document.querySelector('.partner-status');
+
+                    if (headerStatus) {
+                        headerStatus.className = 'status-dot ' + (newStatuses[currentPartner].online ? 'online' : 'offline');
+                    }
+
+                    if (statusText) {
+                        statusText.innerHTML = `
+                            <span class="status-dot ${newStatuses[currentPartner].online ? 'online' : 'offline'}"></span>
+                            ${newStatuses[currentPartner].online ? 'онлайн' : `был(а) ${formatLastSeen(newStatuses[currentPartner].last_seen)}`}
+                        `;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка обновления статусов:', error);
+            }
+        }
+
+        // Функция для обновления списка чатов
+        function updateChatsList(chats) {
+            const chatsList = document.getElementById('chats-list');
+            if (!chatsList) return;
+
+            let html = '';
+
+            if (chats && chats.length > 0) {
+                chats.forEach(chat => {
+                    const isActive = chat.partner_username === currentPartner;
+                    const lastMessage = chat.last_message_content || 'Нет сообщений';
+                    const truncatedMessage = lastMessage.length > 30
+                        ? lastMessage.substring(0, 30) + '...'
+                        : lastMessage;
+
+                    html += `
+                    <div class="chat-item">
+                        <a href="/chat/${chat.chat_id}" class="${isActive ? 'active-chat' : ''} ${chat.unread_count > 0 ? 'unread' : ''}">
+                            <div class="user-info">
+                                <span class="status-dot ${chat.partner_username in statuses && statuses[chat.partner_username].online ? 'online' : 'offline'}"></span>
+                                <strong>${chat.partner_username}</strong>
+                                ${chat.unread_count > 0 ? `<span class="unread-badge">${chat.unread_count}</span>` : ''}
+                            </div>
+                            <span class="last-message" title="${lastMessage}">${truncatedMessage}</span>
+                        </a>
+                    </div>`;
+                });
+            } else {
+                html = '<p>Нет доступных чатов</p>';
+            }
+
+            chatsList.innerHTML = html;
+        }
+
+        // Запрос обновления списка чатов
+        function requestChatsUpdate() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    action: "get_chats",
+                    sender_id: currentUserId
+                }));
+            }
+        }
+
+        // Функция сброса счетчика непрочитанных для текущего чата
+        function resetUnreadCounter() {
+            const chatLinks = document.querySelectorAll('#chats-list a');
+            chatLinks.forEach(link => {
+                if (link.getAttribute('href') === `/chat/${chatId}`) {
+                    const badge = link.querySelector('.unread-badge');
+                    if (badge) {
+                        badge.remove();
+                    }
+                    link.classList.remove('unread');
+                }
+            });
+        }
+
+        // Функция воспроизведения звука уведомления
+        function playNotificationSound() {
+            const sound = document.getElementById('notificationSound');
+            if (sound) {
+                sound.currentTime = 0;
+                sound.play().catch(e => console.log("Не удалось воспроизвести звук:", e));
+            }
+        }
+
+        // Обработчики для вложений
+        document.getElementById('fileInput')?.addEventListener('change', function(e) {
+            const files = e.target.files;
+            const previewContainer = document.querySelector('.attachment-preview');
+
+            if (files.length > 0) {
+                previewContainer.classList.remove('hidden');
+                previewContainer.innerHTML = '';
+                attachments = []; // Очищаем массив перед добавлением новых файлов
+
+                for (let i = 0; i < files.length; i++) {
+                    attachments.push(files[i]); // Сохраняем файлы в массив
+                    displayAttachmentPreview(files[i]);
+                }
+            } else {
+                previewContainer.classList.add('hidden');
+                attachments = [];
+            }
+        });
+
+        function displayAttachmentPreview(file) {
+            const previewContainer = document.querySelector('.attachment-preview');
+            const previewItem = document.createElement('div');
+            previewItem.className = 'attachment-item';
+
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.className = 'attachment-image';
+                    previewItem.appendChild(img);
+                    addRemoveButton(previewItem, file);
+                    previewContainer.appendChild(previewItem);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                previewItem.textContent = file.name;
+                addRemoveButton(previewItem, file);
+                previewContainer.appendChild(previewItem);
+            }
+        }
+
+        function addRemoveButton(container, file) {
+            const removeBtn = document.createElement('div');
+            removeBtn.className = 'remove-attachment';
+            removeBtn.innerHTML = '×';
+            removeBtn.onclick = function() {
+                // Удаляем файл из массива attachments
+                attachments = attachments.filter(f => f.name !== file.name && f.size !== file.size);
+                container.remove();
+                updateAttachmentPreview();
+            };
+            container.appendChild(removeBtn);
+        }
+
+
+        function updateAttachmentPreview() {
+            const previewContainer = document.querySelector('.attachment-preview');
+            if (previewContainer.children.length === 0) {
+                previewContainer.classList.add('hidden');
+            }
+        }
+
+        // Функция отправки сообщения
+        async function sendMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.error("WebSocket не готов к отправке сообщений");
+                return;
+            }
+
+            const input = document.getElementById("messageInput");
+            const content = input?.value.trim();
+            const hasContent = content && content.length > 0;
+            const hasAttachments = attachments.length > 0;
+
+            if (!hasContent && !hasAttachments) return;
+
+            try {
+                let uploadedFiles = [];
+
+                // Отправка файлов, если они есть
+                if (hasAttachments) {
+                    const formData = new FormData();
+                    attachments.forEach(file => {
+                        formData.append('files', file);
+                    });
+
+                    const uploadResponse = await fetch(`/upload_attachment/${chatId}`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!uploadResponse.ok) throw new Error('Ошибка загрузки файлов');
+                    uploadedFiles = await uploadResponse.json();
+                }
+
+                // Отправка сообщения через WebSocket
+                ws.send(JSON.stringify({
+                    action: "send_message",
+                    sender_id: currentUserId,
+                    content: content || '',
+                    chat_id: chatId,
+                    attachments: uploadedFiles
+                }));
+
+                // Очистка после отправки
+                if (input) input.value = "";
+                attachments = [];
+                document.querySelector('.attachment-preview').innerHTML = '';
+                document.querySelector('.attachment-preview').classList.add('hidden');
+                document.getElementById('fileInput').value = ''; // Очищаем input file
+
+            } catch (error) {
+                console.error('Ошибка отправки сообщения:', error);
+                alert('Ошибка при отправке сообщения');
+            }
+        }
+
+        // Инициализация при загрузке страницы
+        window.addEventListener('DOMContentLoaded', function() {
+            initMobileMenu();
+            initWebSocket();
+            updateUserStatuses();
+
+            const chatBox = document.getElementById("chat-box");
+            if (chatBox) {
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+
+            // Обработчик нажатия Enter в поле ввода
+            const messageInput = document.getElementById("messageInput");
+            if (messageInput) {
+                messageInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        sendMessage();
+                    }
+                });
+            }
+
+            // Периодическое обновление списка чатов (каждые 5 секунд)
+            setInterval(requestChatsUpdate, 5000);
+
+            // Обновление статусов каждые 20 секунд
+            setInterval(updateUserStatuses, 20000);
+        });
+
+        async function startChatWithUser(userId, username) {
+            try {
+                const response = await fetch('/api/create_chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        partner_id: userId  // Теперь соответствует модели CreateChatRequest
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || 'Неизвестная ошибка');
+                }
+
+                const result = await response.json();
+                if (result.chat_id) {
+                    window.location.href = `/chat/${result.chat_id}`;
+                }
+            } catch (error) {
+                console.error('Ошибка создания чата:', error);
+                alert(`Ошибка при создании чата: ${error.message}`);
+            }
+        }
+
+        // Функция открытия модального окна профиля
+        async function openProfileModal(username) {
+            try {
+                const response = await fetch(`/api/user/${username}`);
+                const userData = await response.json();
+
+                const modalContent = `
+                    <div class="modal-profile">
+                        <img src="${userData.avatar_url || '/static/default_avatar.png'}"
+                             class="modal-profile-avatar">
+                        <h2 class="modal-profile-name">${userData.username}
+                            ${userData.is_admin ? '<img src="/static/verified.png" class="admin-badge" title="Администратор">' : ''}
+                        </h2>
+                        <div class="modal-profile-status">
+                            <span class="status-dot ${userData.online ? 'online' : 'offline'}"></span>
+                            ${userData.online ? 'онлайн' : `был(а) ${userData.last_seen}`}
+                        </div>
+                        <p class="modal-profile-bio">${userData.bio || 'Нету описания.'}</p>
+                    </div>
+                `;
+
+                document.getElementById('profileModalContent').innerHTML = modalContent;
+                document.getElementById('profileModal').style.display = 'block';
+            } catch (error) {
+                console.error('Ошибка загрузки профиля:', error);
+            }
+        }
+
+        // Управление мобильным меню
+        function initMobileMenu() {
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+
+            if (menuToggle && sidebar && overlay) {
+                menuToggle.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    this.classList.toggle('active');
+                    sidebar.classList.toggle('active');
+                    overlay.classList.toggle('active');
+                });
+
+                overlay.addEventListener('click', function() {
+                    sidebar.classList.remove('active');
+                    overlay.classList.remove('active');
+                    menuToggle.classList.remove('active');
+                });
+
+                // Закрытие меню при клике на пункт
+                document.querySelectorAll('.sidebar a').forEach(link => {
+                    link.addEventListener('click', function() {
+                        sidebar.classList.remove('active');
+                        overlay.classList.remove('active');
+                        menuToggle.classList.remove('active');
+                    });
+                });
+            }
+        }
+
+        document.getElementById('messageInput')?.addEventListener('focus', function() {
+            setTimeout(() => {
+                window.scrollTo(0, document.body.scrollHeight);
+            }, 300);
+        });
+
+        document.getElementById("messageInput")?.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Закрытие модального окна
+        function closeProfileModal() {
+            document.getElementById('profileModal').style.display = 'none';
+        }
+
+        // Обработчики событий
+        document.addEventListener('DOMContentLoaded', function() {
+            // Клик по username в шапке чата
+            document.querySelector('.chat-title')?.addEventListener('click', function() {
+                openProfileModal(currentPartner);
+            });
+
+            // Клик по кнопке закрытия
+            document.querySelector('.close-modal')?.addEventListener('click', closeProfileModal);
+
+            // Закрытие при клике вне окна
+            document.querySelector('.modal-blur-bg')?.addEventListener('click', closeProfileModal);
+
+            // Закрытие по ESC
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeProfileModal();
+                }
+            });
+        });
+
+        // Поиск пользователей
+        const userSearch = document.getElementById('userSearch');
+        const searchResults = document.getElementById('searchResults');
+        let searchTimeout = null;
+
+        userSearch.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+
+            const query = this.value.trim();
+            if (query.length < 2) {
+                searchResults.innerHTML = '';
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const response = await fetch(`/api/search_users?query=${encodeURIComponent(query)}`);
+                    const users = await response.json();
+
+                    if (users.length > 0) {
+                        let html = '';
+                        users.forEach(user => {
+                            html += `
+                            <div class="search-result-item" onclick="startChatWithUser(${user.id}, '${user.username}')">
+                                <img src="${user.avatar_url || '/static/default_avatar.png'}" class="search-result-avatar">
+                                <span class="search-result-username">${user.username}</span>
+                                ${user.is_admin ? '<img src="/static/verified.png" class="admin-badge" title="Администратор">' : ''}
+                                <span class="status-dot ${user.online ? 'online' : 'offline'}"></span>
+                            </div>`;
+                        });
+
+                        searchResults.innerHTML = html;
+                        searchResults.style.display = 'block';
+                    } else {
+                        searchResults.innerHTML = '<div class="no-results">Ничего не найдено</div>';
+                        searchResults.style.display = 'block';
+                    }
+                } catch (error) {
+                    console.error('Ошибка поиска:', error);
+                }
+            }, 300);
+        });
+
+        // Закрытие результатов при клике вне поля поиска
+        document.addEventListener('click', function(e) {
+            if (!userSearch.contains(e.target) && !searchResults.contains(e.target)) {
+                searchResults.style.display = 'none';
+            }
+        })
+    </script>
+{% endblock %}

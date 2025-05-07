@@ -1,0 +1,55 @@
+<div class="comment" id="comment-{{ comment.id }}">
+    <div class="comment-header">
+        <img src="{{ comment.author.avatar_url or '/static/default_avatar.png' }}"
+             alt="{{ comment.author.username }}"
+             class="comment-avatar">
+        <div class="comment-author">{{ comment.author.username }}</div>
+        <div class="comment-date">{{ comment.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+
+        {% if current_user and (current_user.id == comment.author_id or current_user.is_admin) %}
+        <form method="post" action="/comments/{{ comment.id }}/delete" class="comment-delete">
+            <button type="submit" class="btn btn-danger"
+                    onclick="return confirm('Удалить комментарий?')">×</button>
+        </form>
+        {% endif %}
+    </div>
+
+    <div class="comment-content">{{ comment.content }}</div>
+
+    {% if current_user %}
+    <button class="btn-reply" onclick="showReplyForm({{ comment.id }})">Ответить</button>
+
+    <form method="post" action="/news/{{ news.id }}/comments"
+          class="reply-form" id="reply-form-{{ comment.id }}"
+          style="display: none;">
+        <input type="hidden" name="parent_id" value="{{ comment.id }}">
+        <textarea name="content" placeholder="Ваш ответ..." required></textarea>
+        <button type="submit" class="btn btn-primary">Отправить</button>
+        <button type="button" class="btn btn-secondary"
+                onclick="hideReplyForm({{ comment.id }})">Отмена</button>
+    </form>
+    {% endif %}
+
+    <div class="replies">
+        {% for reply in comment.replies %}
+            <div class="comment reply">
+                <div class="comment-header">
+                    <img src="{{ reply.author.avatar_url or '/static/default_avatar.png' }}"
+                         alt="{{ reply.author.username }}"
+                         class="comment-avatar">
+                    <div class="comment-author">{{ reply.author.username }}</div>
+                    <div class="comment-date">{{ reply.created_at.strftime('%d.%m.%Y %H:%M') }}</div>
+
+                    {% if current_user and (current_user.id == reply.author_id or current_user.is_admin) %}
+                    <form method="post" action="/comments/{{ reply.id }}/delete" class="comment-delete">
+                        <button type="submit" class="btn btn-danger"
+                                onclick="return confirm('Удалить комментарий?')">×</button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                <div class="comment-content">{{ reply.content }}</div>
+            </div>
+        {% endfor %}
+    </div>
+</div>

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Новости | malpire.ru{% endblock %}
+
+{% block content %}
+<div class="news-container">
+    <h1>Последние новости</h1>
+    
+    {% if current_user.is_admin %}
+    <div class="admin-actions">
+        <a href="/news/add" class="btn btn-primary">Добавить новость</a>
+    </div>
+    {% endif %}
+    
+    <div class="news-list">
+        {% for item in news %}
+        <article class="news-item">
+            {% if item.image_url %}
+            <img src="{{ item.image_url }}" alt="{{ item.title }}" class="news-image">
+            {% endif %}
+            <div class="news-content">
+                <h2><a href="/news/{{ item.id }}">{{ item.title }}</a></h2>
+                <div class="news-meta">
+                    <span class="author">{{ item.author.username }}</span>
+                    <span class="date">{{ item.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+                </div>
+                <p class="news-excerpt">{{ item.content|truncate(200) }}</p>
+                <a href="/news/{{ item.id }}" class="read-more">Читать далее</a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

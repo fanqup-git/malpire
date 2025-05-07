@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ news.title }} | malpire.ru{% endblock %}
+
+{% block content %}
+<div class="news-detail-container">
+    <article class="news-article">
+        <h1>{{ news.title }}</h1>
+        
+        <div class="news-meta">
+            <span class="author">{{ news.author.username }}</span>
+            <span class="date">{{ news.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+        </div>
+        
+        {% if news.image_url %}
+        <img src="{{ news.image_url }}" alt="{{ news.title }}" class="news-main-image">
+        {% endif %}
+        
+        <div class="news-content">
+            {{ news.content|safe }}
+        </div>
+    </article>
+    
+    <a href="/news" class="btn btn-back">Назад к списку новостей</a>
+    <section class="comments-section" id="comments">
+        <h2>Комментарии ({{ news.comments|length }})</h2>
+
+        {% if current_user %}
+        <form method="post" action="/news/{{ news.id }}/comments" class="comment-form">
+            <textarea name="content" placeholder="Ваш комментарий..." required></textarea>
+            <button type="submit" class="btn btn-primary">Отправить</button>
+        </form>
+        {% else %}
+        <p>Чтобы оставить комментарий, <a href="/login">войдите</a> в аккаунт.</p>
+        {% endif %}
+
+        <div class="comments-list">
+            {% for comment in news.comments if not comment.parent_id %}
+                {% include "news/_comment.html" %}
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+<script>
+function showReplyForm(commentId) {
+    const form = document.getElementById(`reply-form-${commentId}`);
+    form.style.display = 'block';
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideReplyForm(commentId) {
+    document.getElementById(`reply-form-${commentId}`).style.display = 'none';
+}
+</script>
+{% endblock %}

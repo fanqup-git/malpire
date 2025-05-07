@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Главная | malpire.ru{% endblock %}
+{% block body_class %}home-page{% endblock %}
+
+{% block content %}
+<div class="hero-container">
+    <div class="blur-layer"></div>
+    <div class="content">
+        <h1 class="title">Добро пожаловать в <span class="highlight">Malpire</span></h1>
+        <p class="subtitle">Быстрый и безопасный мессенджер</p>
+        
+        <div class="buttons">
+            <a href="/login" class="btn btn-primary">Войти</a>
+            <a href="/register" class="btn btn-secondary">Зарегистрироваться</a>
+        </div>
+    </div>
+</div>
+
+<div class="features">
+    <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Безопасность</h3>
+        <p>Шифрование для ваших приватных переписок.</p>
+    </div>
+    
+    <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Быстрота</h3>
+        <p>Быстрая отправка сообщений без задерки.</p>
+    </div>
+    
+    <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>Легкий в использовании</h3>
+        <p>Чистый и понятный интерфейс.</p>
+    </div>
+</div>
+{% endblock %}

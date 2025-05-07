@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Добавить новость | malpire.ru{% endblock %}
+
+{% block content %}
+<div class="add-news-container">
+    <h1>Добавить новость</h1>
+    
+    <form method="post" action="/news/add" enctype="multipart/form-data" class="news-form">
+        <div class="form-group">
+            <label for="title">Заголовок</label>
+            <input type="text" id="title" name="title" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="content">Текст новости</label>
+            <textarea id="content" name="content" rows="10" required></textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="image">Изображение (необязательно)</label>
+            <input type="file" id="image" name="image" accept="image/*">
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Опубликовать</button>
+    </form>
+</div>
+{% endblock %}

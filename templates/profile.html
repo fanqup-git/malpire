@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{% if is_own_profile %}Мой профиль | malpire.ru{% else %}Профиль {{ user.username }} | malpire.ru{% endif %}{% endblock %}
+{% block body_class %}centered-container{% endblock %}
+
+{% block content %}
+    <div class="profile-container">
+        <div class="avatar-container">
+            <img src="{{ user.avatar_url }}" class="profile-avatar">
+            {% if is_own_profile %}
+                <form id="avatarForm" enctype="multipart/form-data">
+                    <input type="file" id="avatarInput" name="avatar" accept="image/*" style="display: none;">
+                    <button type="button" onclick="document.getElementById('avatarInput').click()">Изменить аватар</button>
+                </form>
+            {% endif %}
+        </div>
+
+        <div class="profile-info">
+            {% if is_own_profile %}
+                <form method="post" action="/profile/update" class="profile-form">
+                    <div class="form-group">
+                        <label for="username">Имя пользователя:</label>
+                        <input type="text" id="username" name="username" value="{{ user.username }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="bio">О себе:</label>
+                        <textarea id="bio" name="bio" rows="3">{{ user.bio }}</textarea>
+                    </div>
+                    <button type="submit">Сохранить</button>
+                </form>
+            {% else %}
+                <h2>
+                    {{ user.username }}
+                    {% if user.is_admin %}
+                        <img src="/static/verified.png" class="admin-badge" title="Администратор">
+                    {% endif %}
+                </h2>
+                {% if user.bio %}
+                    <p class="bio">{{ user.bio }}</p>
+                {% endif %}
+            {% endif %}
+
+            <div class="status-info">
+                <span class="status-dot {% if status.online %}online{% else %}offline{% endif %}"></span>
+                {% if status.online %}
+                    онлайн
+                {% else %}
+                    был(а) {{ status.last_seen }}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if is_own_profile %}
+    <script>
+        document.getElementById('avatarInput').addEventListener('change', async function(e) {
+            const formData = new FormData();
+            formData.append('file', e.target.files[0]);
+            try {
+                const response = await fetch('/upload_avatar', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                document.querySelector('.profile-avatar').src = result.avatar_url;
+                alert('Аватар успешно обновлен!');
+            } catch (error) {
+                console.error('Ошибка загрузки аватара:', error);
+                alert('Ошибка при загрузке аватара');
+            }
+        });
+    </script>
+    {% endif %}
+{% endblock %}
